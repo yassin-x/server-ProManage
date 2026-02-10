@@ -1,0 +1,139 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String  @id @default(uuid())
+  email     String  @unique
+  username  String  @unique
+  firstName String
+  lastName  String
+  password  String
+  avatarURL String?
+
+  profileVisibilty   Visibility         @default(PRIVATE)
+  subscriptionStatus SubscriptionStatus @default(FREE)
+
+  profile         Profile?
+  projects        Project[]
+  projectAccesses ProjectAccess[]
+
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  subscription Subscription?
+  payments     Payment[]
+  auditLogs    AuditLog[]
+}
+
+model Profile {
+  id      String  @id @default(uuid())
+  bio     String?
+  website String?
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+}
+
+model Project {
+  id          String     @id @default(uuid())
+  title       String
+  description String
+  githubLink  String?
+  previewLink String?
+  tags        String[]   @default([])
+  visibility  Visibility @default(PRIVATE)
+
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id])
+
+  accessList ProjectAccess[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ProjectAccess {
+  id        String @id @default(uuid())
+  projectId String
+  userId    String
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+model Subscription {
+  id       String  @id @default(uuid())
+  isActive Boolean @default(false)
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  startedAt DateTime?
+  endsAt    DateTime?
+  payments  Payment[]
+}
+
+model Payment {
+  id       String        @id @default(uuid())
+  amount   Int
+  currency Currency      @default(EGP)
+  status   PaymentStatus
+
+  provider   String
+  providerId String
+
+  userId         String
+  subscriptionId String
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+}
+
+model AuditLog {
+  id       String @id @default(uuid())
+  action   String
+  entity   String
+  entityId String
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+}
+
+enum Visibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum SubscriptionStatus {
+  FREE
+  PREMIUM
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+enum Currency {
+  USD
+  EUR
+  EGP
+}
