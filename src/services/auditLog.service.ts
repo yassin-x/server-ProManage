@@ -1,6 +1,8 @@
 import { AuditAction, AuditEntityType } from "../constants/enums";
 import { Prisma } from "../generated/prisma/client";
 import { db } from "../lib/prisma";
+import redis from "../lib/redis";
+import { redisKeys } from "./cacheKey.service";
 
 interface IAduditLog {
   actorId: string;
@@ -24,6 +26,9 @@ export const createAuditLog = async (data: IAduditLog) => {
       metadata: data.metadata ?? Prisma.JsonNull,
     },
   });
+
+  const cacheKey = redisKeys.userAuditLogs(data.actorId);
+  await redis.del(cacheKey);
 
   return true;
 };

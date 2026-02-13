@@ -2,9 +2,12 @@ import bcrypt from "bcryptjs";
 import { db } from "../lib/prisma";
 import { catchError } from "../utils/CatchError";
 import { sendResponse } from "../utils/response.helper";
-import { generateToken } from "../lib/generateToken";
 import { createAuditLog } from "../services/auditLog.service";
 import { AuditAction, AuditEntityType } from "../constants/enums";
+import redis from "../lib/redis";
+import { redisKeys } from "../services/cacheKey.service";
+import { accessToken, refresh_token } from "../lib/generateToken";
+import { refreshAccessToken } from "../services/auth.service";
 
 export const register = catchError(async (req, res) => {
   const { email, password, username, firstName, lastName } = req.body;
@@ -70,9 +73,9 @@ export const register = catchError(async (req, res) => {
 });
 
 export const login = catchError(async (req, res) => {
-  const { email, passwpord } = req.body;
+  const { email, password } = req.body;
 
-  if (!email || !passwpord) {
+  if (!email || !password) {
     return sendResponse(res, {
       statusCode: 400,
       success: false,
@@ -96,7 +99,7 @@ export const login = catchError(async (req, res) => {
     });
   }
 
-  const isValidPassword = bcrypt.compareSync(passwpord, user.password);
+  const isValidPassword = bcrypt.compareSync(password, user.password);
 
   if (!isValidPassword) {
     return sendResponse(res, {
@@ -107,7 +110,8 @@ export const login = catchError(async (req, res) => {
     });
   }
 
-  const { access_token } = generateToken(res, user.id);
+  const { sessionId } = await refresh_token(user.id);
+  const { access_token } = accessToken(user.id, sessionId);
 
   await createAuditLog({
     actorId: user.id,
@@ -119,6 +123,9 @@ export const login = catchError(async (req, res) => {
       userAgent: req.headers["user-agent"],
     },
   });
+
+  const cacheKey = redisKeys.userAuth(user.id);
+  await redis.set(cacheKey, JSON.stringify({ ...user, password: undefined }));
 
   sendResponse(res, {
     statusCode: 200,
@@ -132,6 +139,7 @@ export const login = catchError(async (req, res) => {
       },
       meta: {
         access_token,
+        sessionId,
       },
     },
   });
@@ -148,8 +156,10 @@ export const refreshToken = catchError(async (req, res) => {
       message: "Unauthorized",
     });
   }
-
-  const { access_token } = generateToken(res, userId);
+  const { access_token } = await refreshAccessToken(
+    userId,
+    req.sessionId as string,
+  );
 
   sendResponse(res, {
     statusCode: 200,
@@ -190,6 +200,7 @@ export const profileUser = catchError(async (req, res) => {
 
 export const logout = catchError(async (req, res) => {
   const user = req.user;
+  const sessionId = req.sessionId as string;
   if (!user) {
     return sendResponse(res, {
       statusCode: 401,
@@ -209,7 +220,9 @@ export const logout = catchError(async (req, res) => {
     },
   });
 
-  res.clearCookie("refresh_token");
+  const refreshTokenCacheKey = redisKeys.userSessions(user.id);
+  await redis.hdel(refreshTokenCacheKey, sessionId);
+
   sendResponse(res, {
     statusCode: 200,
     success: true,

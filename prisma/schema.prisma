@@ -20,7 +20,6 @@ model User {
   firstName String
   lastName  String
   password  String
-  avatarURL String?
 
   profileVisibilty   Visibility         @default(PRIVATE)
   subscriptionStatus SubscriptionStatus @default(FREE)

@@ -1,12 +1,14 @@
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { catchError } from "../utils/CatchError";
-import { db } from "../lib/prisma";
 import { User } from "../generated/prisma/client";
+import redis from "../lib/redis";
+import { redisKeys } from "../services/cacheKey.service";
 
 export const verifyUser = catchError(async (req, res, next) => {
   const authHeader = req.headers.authorization;
+  const sessionId = req.headers["x-session-id"] as string;
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  if (!authHeader || !authHeader.startsWith("Bearer ") || !sessionId) {
     return res.status(401).json({ message: "User Unauthorized" });
   }
 
@@ -25,10 +27,24 @@ export const verifyUser = catchError(async (req, res, next) => {
     return res.status(401).json({ message: "Unauthorized - invalid token" });
   }
 
-  const user = await db.user.findUnique({
-    where: { id: decoded.userId },
-  });
+  const sessionCacheKey = redisKeys.userSessions(decoded.userId);
+  const storedToken = await redis.hget(sessionCacheKey, decoded.sessionId);
+  if (!storedToken) {
+    return res
+      .status(401)
+      .json({ message: "Unauthorized - session expired or invalid" });
+  }
 
-  req.user = user as User;
+  const cacheKey = redisKeys.userAuth(decoded.userId);
+  const cachedUser = await redis.get(cacheKey);
+
+  if (!cachedUser) {
+    return res
+      .status(401)
+      .json({ message: "Unauthorized - user not logged in" });
+  }
+
+  req.user = JSON.parse(cachedUser) as User;
+  req.sessionId = decoded.sessionId;
   next();
 });
