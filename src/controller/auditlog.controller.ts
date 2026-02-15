@@ -29,7 +29,7 @@ export const getAllAuditLogsUser = catchError(async (req, res) => {
       orderBy: { createdAt: "desc" },
       take: 50,
     });
-    
+
     await redis.set(cacheKey, JSON.stringify(logs), "EX", 5 * 60);
     auditLogs = logs;
   }

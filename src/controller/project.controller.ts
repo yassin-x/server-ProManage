@@ -1,16 +1,29 @@
 import { AuditAction, AuditEntityType } from "../constants/enums";
+import { Project } from "../generated/prisma/client";
 import { db } from "../lib/prisma";
+import redis from "../lib/redis";
 import { createAuditLog } from "../services/auditLog.service";
+import { redisKeys } from "../services/cacheKey.service";
 import { catchError } from "../utils/CatchError";
 import { sendResponse } from "../utils/response.helper";
 
 export const getUserProjects = catchError(async (req, res) => {
-  const user = req.user;
-  const projects = await db.project.findMany({
-    where: {
-      ownerId: user?.id,
-    },
-  });
+  const userId = req.user!.id;
+  const cacheKey = redisKeys.userProjects(userId);
+  const cached = await redis.get(cacheKey);
+  let projects;
+
+  if (cached) {
+    projects = JSON.parse(cached);
+  } else {
+    projects = await db.project.findMany({
+      where: {
+        ownerId: userId,
+      },
+    });
+
+    await redis.set(cacheKey, JSON.stringify(projects), "EX", 30 * 60);
+  }
 
   sendResponse(res, {
     statusCode: 200,
@@ -73,6 +86,9 @@ export const createProject = catchError(async (req, res) => {
     },
   });
 
+  const cacheKey = redisKeys.userProjects(user.id);
+  await redis.del(cacheKey);
+
   sendResponse(res, {
     statusCode: 201,
     success: true,
@@ -125,6 +141,9 @@ export const updateProject = catchError(async (req, res) => {
     },
   });
 
+  const cacheKey = redisKeys.userProjects(user.id);
+  await redis.del(cacheKey);
+
   sendResponse(res, {
     statusCode: 200,
     success: true,
@@ -171,6 +190,9 @@ export const deleteProject = catchError(async (req, res) => {
       userAgent: req.headers["user-agent"] || "unknown",
     },
   });
+
+  const cacheKey = redisKeys.userProjects(user.id);
+  await redis.del(cacheKey);
 
   sendResponse(res, {
     statusCode: 200,
